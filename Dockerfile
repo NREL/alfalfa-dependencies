@@ -27,6 +27,7 @@ RUN apt-get update \
     python3-venv \
     python3-pip \
     libblas-dev \
+    ruby-full \
     && rm -rf /var/lib/apt/lists/*
 
 
@@ -41,8 +42,8 @@ RUN update-alternatives --set java /usr/lib/jvm/java-8-openjdk-amd64/jre/bin/jav
 
 WORKDIR $BUILD_DIR
 
-ENV OPENSTUDIO_DOWNLOAD_FILENAME OpenStudio-3.6.0+860f5de185-Ubuntu-20.04-x86_64.deb
-ENV OPENSTUDIO_DOWNLOAD_URL https://github.com/NREL/OpenStudio/releases/download/v3.6.0/OpenStudio-3.6.0+860f5de185-Ubuntu-20.04-x86_64.deb
+ENV OPENSTUDIO_DOWNLOAD_FILENAME OpenStudio-3.6.1+bb9481519e-Ubuntu-20.04-x86_64.deb
+ENV OPENSTUDIO_DOWNLOAD_URL https://github.com/NREL/OpenStudio/releases/download/v3.6.1/OpenStudio-3.6.1+bb9481519e-Ubuntu-20.04-x86_64.deb
 
 ENV ENERGYPLUS_VERSION 23.1.0
 ENV ENERGYPLUS_TAG v23.1.0
