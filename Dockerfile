@@ -27,6 +27,7 @@ RUN apt-get update \
     python3-venv \
     python3-pip \
     libblas-dev \
+    ruby-full \
     && rm -rf /var/lib/apt/lists/*
 
 
@@ -41,18 +42,18 @@ RUN update-alternatives --set java /usr/lib/jvm/java-8-openjdk-amd64/jre/bin/jav
 
 WORKDIR $BUILD_DIR
 
-ENV OPENSTUDIO_DOWNLOAD_FILENAME OpenStudio-3.3.0+ad235ff36e-Ubuntu-20.04.deb
-ENV OPENSTUDIO_DOWNLOAD_URL https://github.com/NREL/OpenStudio/releases/download/v3.3.0/OpenStudio-3.3.0+ad235ff36e-Ubuntu-20.04.deb
+ENV OPENSTUDIO_DOWNLOAD_FILENAME OpenStudio-3.6.1+bb9481519e-Ubuntu-20.04-x86_64.deb
+ENV OPENSTUDIO_DOWNLOAD_URL https://github.com/NREL/OpenStudio/releases/download/v3.6.1/OpenStudio-3.6.1+bb9481519e-Ubuntu-20.04-x86_64.deb
 
-ENV ENERGYPLUS_VERSION 9.6.0
-ENV ENERGYPLUS_TAG 9.6-3.8
-ENV ENERGYPLUS_SHA e78d88a246
-ENV ENERGYPLUS_DIR /usr/local/EnergyPlus-9-6-0
+ENV ENERGYPLUS_VERSION 23.1.0
+ENV ENERGYPLUS_TAG v23.1.0
+ENV ENERGYPLUS_SHA 87ed9199d4
+ENV ENERGYPLUS_DIR /usr/local/EnergyPlus
 
 # mlep / external interface needs parts of EnergyPlus that are not included with OpenStudio
 # expandobjects, runenergyplus might be two examples, but the need to install EnergyPlus separately from OpenStudio
 # might be revaluated
-ENV ENERGYPLUS_DOWNLOAD_BASE_URL https://github.com/TShapinsky/EnergyPlus/releases/download/$ENERGYPLUS_TAG
+ENV ENERGYPLUS_DOWNLOAD_BASE_URL https://github.com/NREL/EnergyPlus/releases/download/$ENERGYPLUS_TAG
 ENV ENERGYPLUS_DOWNLOAD_FILENAME EnergyPlus-$ENERGYPLUS_VERSION-$ENERGYPLUS_SHA-Linux-Ubuntu20.04-x86_64.tar.gz
 ENV ENERGYPLUS_DOWNLOAD_URL $ENERGYPLUS_DOWNLOAD_BASE_URL/$ENERGYPLUS_DOWNLOAD_FILENAME
 
