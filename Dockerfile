@@ -42,12 +42,12 @@ RUN update-alternatives --set java /usr/lib/jvm/java-8-openjdk-amd64/jre/bin/jav
 
 WORKDIR $BUILD_DIR
 
-ENV OPENSTUDIO_DOWNLOAD_FILENAME OpenStudio-3.6.1+bb9481519e-Ubuntu-20.04-x86_64.deb
-ENV OPENSTUDIO_DOWNLOAD_URL https://github.com/NREL/OpenStudio/releases/download/v3.6.1/OpenStudio-3.6.1+bb9481519e-Ubuntu-20.04-x86_64.deb
+ENV OPENSTUDIO_DOWNLOAD_FILENAME OpenStudio-3.8.0-rc1+2d5664af4d-Ubuntu-22.04-arm64.deb
+ENV OPENSTUDIO_DOWNLOAD_URL https://github.com/NREL/OpenStudio/releases/download/v3.8.0-rc1/OpenStudio-3.8.0-rc1+2d5664af4d-Ubuntu-22.04-arm64.deb
 
-ENV ENERGYPLUS_VERSION 23.1.0
-ENV ENERGYPLUS_TAG v23.1.0
-ENV ENERGYPLUS_SHA 87ed9199d4
+ENV ENERGYPLUS_VERSION 24.1.0
+ENV ENERGYPLUS_TAG v24.1.0
+ENV ENERGYPLUS_SHA 9d7789a3ac
 ENV ENERGYPLUS_DIR /usr/local/EnergyPlus
 
 # mlep / external interface needs parts of EnergyPlus that are not included with OpenStudio
