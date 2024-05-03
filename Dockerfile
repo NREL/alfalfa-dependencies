@@ -19,7 +19,7 @@ RUN apt-get update \
     vim \
     wget \
     git \
-    openjdk-8-jdk \
+    # openjdk-8-jdk \
     liblapack-dev \
     gfortran \
     libgfortran4 \
@@ -34,11 +34,11 @@ RUN apt-get update \
 WORKDIR $HOME
 # Use set in update-alternatives instead of config to
 # provide non-interactive input.
-RUN update-alternatives --set java /usr/lib/jvm/java-8-openjdk-amd64/jre/bin/java \
-    && update-alternatives --set javac /usr/lib/jvm/java-8-openjdk-amd64/bin/javac \
-    && curl -SLO http://openstudio-resources.s3.amazonaws.com/bcvtb-linux.tar.gz \
-    && tar -xzf bcvtb-linux.tar.gz \
-    && rm bcvtb-linux.tar.gz
+# RUN update-alternatives --set java /usr/lib/jvm/java-8-openjdk-amd64/jre/bin/java \
+#     && update-alternatives --set javac /usr/lib/jvm/java-8-openjdk-amd64/bin/javac \
+#     && curl -SLO http://openstudio-resources.s3.amazonaws.com/bcvtb-linux.tar.gz \
+#     && tar -xzf bcvtb-linux.tar.gz \
+#     && rm bcvtb-linux.tar.gz
 
 WORKDIR $BUILD_DIR
 
@@ -88,84 +88,25 @@ ENV FMIL_HOME $ROOT_DIR/fmil
 ENV SUNDIALS_HOME $ROOT_DIR
 ENV SUNDIALS_TAG v4.1.0
 
-ENV ASSIMULO_TAG Assimulo-3.2.9
+ENV ASSIMULO_TAG Assimulo-3.4.3
 
-ENV PYFMI_TAG PyFMI-2.9.5
+ENV PYFMI_TAG PyFMI-2.12.0
 
 ENV SUPERLU_HOME $ROOT_DIR/SuperLU_MT_3.1
-
-# Modelica requires libgfortran3 which is not in apt for 20.04
-RUN wget http://archive.ubuntu.com/ubuntu/pool/universe/g/gcc-6/gcc-6-base_6.4.0-17ubuntu1_amd64.deb \
-    && wget http://archive.ubuntu.com/ubuntu/pool/universe/g/gcc-6/libgfortran3_6.4.0-17ubuntu1_amd64.deb \
-    && dpkg -i gcc-6-base_6.4.0-17ubuntu1_amd64.deb \
-    && dpkg -i libgfortran3_6.4.0-17ubuntu1_amd64.deb \
-    && ln -s /usr/lib/x86_64-linux-gnu/libffi.so.7 /usr/lib/x86_64-linux-gnu/libffi.so.6 \
-    && rm *.deb
-
-# Build FMI Library (for PyFMI)
-RUN git clone --branch $FMIL_TAG --depth 1 https://github.com/modelon-community/fmi-library.git \
-    && mkdir $FMIL_HOME \
-    && mkdir fmil_build \
-    && cd fmil_build \
-    && cmake -DFMILIB_INSTALL_PREFIX=$FMIL_HOME ../fmi-library \
-    && make install \
-    && cd .. && rm -rf fmi-library fmil_build
-
-# Build SuperLU (groan)
-COPY build/make.inc $BUILD_DIR
-
-RUN cd $ROOT_DIR \
-    && curl -SLO http://crd-legacy.lbl.gov/~xiaoye/SuperLU/superlu_mt_3.1.tar.gz \
-    && tar -xzf superlu_mt_3.1.tar.gz \
-    && cd SuperLU_MT_3.1 \
-    && rm make.inc \
-    && cp $BUILD_DIR/make.inc make.inc \
-    && make lib
-
-ENV LD_LIBRARY_PATH $ROOT_DIR/lib:$SUPERLU_HOME/lib:$LD_LIBRARY_PATH
-
-# Build Sundials with SuperLU(for Assimulo)
-RUN git clone --branch $SUNDIALS_TAG --depth 1 https://github.com/LLNL/sundials.git \
-    && mkdir sundials_build \
-    && cd sundials_build \
-    && cmake ../sundials \
-    -DPTHREAD_ENABLE=1 \
-    -DBLAS_ENABLE=1 \
-    -DLAPACK_LIBRARIES='-llapack -lblas' \
-    -DLAPACK_ENABLE=1 \
-    -DSUPERLUMT_ENABLE=1 \
-    -DSUNDIALS_INDEX_SIZE=32 \
-    -DSUPERLUMT_INCLUDE_DIR=$SUPERLU_HOME/SRC \
-    -DSUPERLUMT_LIBRARY_DIR=$SUPERLU_HOME/lib \
-    -DSUPERLUMT_LIBRARIES='-lblas' \
-    && make \
-    && make install \
-    && cd .. && rm -rf sundials sundials_build
-
-# This is required for Assimulo to build correctly with setuptools 60+
-ENV SETUPTOOLS_USE_DISTUTILS stdlib
 
 COPY requirements.txt $BUILD_DIR
 RUN pip install -r requirements.txt && \
     rm requirements.txt
 
 # Install Assimulo for PyFMI
-RUN git clone --branch $ASSIMULO_TAG --depth 1 https://github.com/modelon-community/Assimulo.git \
-     && cd Assimulo \
-     && python3 setup.py install \
-     --sundials-home=$SUNDIALS_HOME \
-     --blas-home=/usr/lib/x86_64-linux-gnu \
-     --lapack-home=/usr/lib/x86_64-linux-gnu/lapack/ \
-     --superlu-home=$SUPERLU_HOME \
-     && cd .. && rm -rf Assimulo
+RUN curl -SLO https://github.com/modelon-community/Assimulo/releases/download/Assimulo-3.4.3/Assimulo-3.4.3-cp38-cp38-linux_x86_64.whl \
+    && pip install Assimulo-3.4.3-cp38-cp38-linux_x86_64.whl
 
 # Install PyFMI
-RUN git clone --branch $PYFMI_TAG --depth 1 https://github.com/modelon-community/PyFMI.git \
-    && cd PyFMI \
-    && python3 setup.py install \
-    && cd .. && rm -rf PyFMI
+RUN curl -SLO https://github.com/modelon-community/PyFMI/releases/download/PyFMI-2.11.0/PyFMI-2.11.0-cp38-cp38-linux_x86_64.whl \
+    && pip install PyFMI-2.11.0-cp38-cp38-linux_x86_64.whl
 
-ENV PYTHONPATH=/usr/local/lib/python3.8/dist-packages/Assimulo-3.2.9-py3.8-linux-x86_64.egg:/usr/local/lib/python3.8/dist-packages/PyFMI-2.9.5-py3.8-linux-x86_64.egg
+ENV PYTHONPATH=/usr/local/lib/python3.8/dist-packages/Assimulo-3.2.9-py3.8-linux-x86_64.egg:/usr/local/lib/python3.8/dist-packages/PyFMI-2.9.5-py3.8-linux-x86_64.egg:${ENERGYPLUS_DIR}
 
 ENV SEPARATE_PROCESS_JVM /usr/lib/jvm/java-8-openjdk-amd64/
 ENV JAVA_HOME /usr/lib/jvm/java-8-openjdk-amd64/
