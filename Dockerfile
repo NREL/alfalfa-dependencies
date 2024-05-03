@@ -42,8 +42,8 @@ RUN update-alternatives --set java /usr/lib/jvm/java-8-openjdk-amd64/jre/bin/jav
 
 WORKDIR $BUILD_DIR
 
-ENV OPENSTUDIO_DOWNLOAD_FILENAME OpenStudio-3.8.0-rc1+2d5664af4d-Ubuntu-22.04-arm64.deb
-ENV OPENSTUDIO_DOWNLOAD_URL https://github.com/NREL/OpenStudio/releases/download/v3.8.0-rc1/OpenStudio-3.8.0-rc1+2d5664af4d-Ubuntu-22.04-arm64.deb
+ENV OPENSTUDIO_DOWNLOAD_FILENAME OpenStudio-3.8.0-rc1+2d5664af4d-Ubuntu-22.04-x86_64.deb
+ENV OPENSTUDIO_DOWNLOAD_URL https://github.com/NREL/OpenStudio/releases/download/v3.8.0-rc1/OpenStudio-3.8.0-rc1+2d5664af4d-Ubuntu-22.04-x86_64.deb
 
 ENV ENERGYPLUS_VERSION 24.1.0
 ENV ENERGYPLUS_TAG v24.1.0
