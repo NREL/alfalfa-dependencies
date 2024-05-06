@@ -42,8 +42,8 @@ WORKDIR $HOME
 
 WORKDIR $BUILD_DIR
 
-ENV OPENSTUDIO_DOWNLOAD_FILENAME OpenStudio-3.8.0-rc1+2d5664af4d-Ubuntu-22.04-x86_64.deb
-ENV OPENSTUDIO_DOWNLOAD_URL https://github.com/NREL/OpenStudio/releases/download/v3.8.0-rc1/OpenStudio-3.8.0-rc1+2d5664af4d-Ubuntu-22.04-x86_64.deb
+ENV OPENSTUDIO_DOWNLOAD_FILENAME OpenStudio-3.8.0-rc1+2d5664af4d-Ubuntu-20.04-x86_64.deb
+ENV OPENSTUDIO_DOWNLOAD_URL https://github.com/NREL/OpenStudio/releases/download/v3.8.0-rc1/OpenStudio-3.8.0-rc1+2d5664af4d-Ubuntu-20.04-x86_64.deb
 
 ENV ENERGYPLUS_VERSION 24.1.0
 ENV ENERGYPLUS_TAG v24.1.0
@@ -82,17 +82,13 @@ RUN wget https://spawn.s3.amazonaws.com/custom/Spawn-$SPAWN_VERSION-Linux.tar.gz
     && rm Spawn-$SPAWN_VERSION-Linux.tar.gz
 
 ## MODELICA
-ENV FMIL_TAG 2.4
-ENV FMIL_HOME $ROOT_DIR/fmil
-
-ENV SUNDIALS_HOME $ROOT_DIR
-ENV SUNDIALS_TAG v4.1.0
-
-ENV ASSIMULO_TAG Assimulo-3.4.3
-
-ENV PYFMI_TAG PyFMI-2.12.0
-
-ENV SUPERLU_HOME $ROOT_DIR/SuperLU_MT_3.1
+# Modelica requires libgfortran3 which is not in apt for 20.04
+RUN wget http://archive.ubuntu.com/ubuntu/pool/universe/g/gcc-6/gcc-6-base_6.4.0-17ubuntu1_amd64.deb \
+    && wget http://archive.ubuntu.com/ubuntu/pool/universe/g/gcc-6/libgfortran3_6.4.0-17ubuntu1_amd64.deb \
+    && dpkg -i gcc-6-base_6.4.0-17ubuntu1_amd64.deb \
+    && dpkg -i libgfortran3_6.4.0-17ubuntu1_amd64.deb \
+    && ln -s /usr/lib/x86_64-linux-gnu/libffi.so.7 /usr/lib/x86_64-linux-gnu/libffi.so.6 \
+    && rm *.deb
 
 COPY requirements.txt $BUILD_DIR
 RUN pip install -r requirements.txt && \
@@ -106,7 +102,7 @@ RUN curl -SLO https://github.com/modelon-community/Assimulo/releases/download/As
 RUN curl -SLO https://github.com/modelon-community/PyFMI/releases/download/PyFMI-2.11.0/PyFMI-2.11.0-cp38-cp38-linux_x86_64.whl \
     && pip install PyFMI-2.11.0-cp38-cp38-linux_x86_64.whl
 
-ENV PYTHONPATH=/usr/local/lib/python3.8/dist-packages/Assimulo-3.2.9-py3.8-linux-x86_64.egg:/usr/local/lib/python3.8/dist-packages/PyFMI-2.9.5-py3.8-linux-x86_64.egg:${ENERGYPLUS_DIR}
+ENV PYTHONPATH=${PYTHONPATH}:${ENERGYPLUS_DIR}
 
 ENV SEPARATE_PROCESS_JVM /usr/lib/jvm/java-8-openjdk-amd64/
 ENV JAVA_HOME /usr/lib/jvm/java-8-openjdk-amd64/
