@@ -34,7 +34,7 @@ RUN update-alternatives --set java /usr/lib/jvm/java-8-openjdk-amd64/jre/bin/jav
 
 WORKDIR $BUILD_DIR
 
-ENV OPENSTUDIO_DOWNLOAD_URL https://github.com/NREL/OpenStudio/releases/download/v3.8.0-rc2/OpenStudio-3.8.0-rc2+af997f4fef-Ubuntu-20.04-x86_64.deb
+ENV OPENSTUDIO_DOWNLOAD_URL https://github.com/NREL/OpenStudio/releases/download/v3.8.0-rc3/OpenStudio-3.8.0-rc3+d8eac889d0-Ubuntu-20.04-x86_64.deb
 
 # mlep / external interface needs parts of EnergyPlus that are not included with OpenStudio
 # expandobjects, runenergyplus might be two examples, but the need to install EnergyPlus separately from OpenStudio
