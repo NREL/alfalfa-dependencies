@@ -98,27 +98,28 @@ ENV HOME /alfalfa
 
 WORKDIR /artifacts
 
-COPY --from=modelica-dependencies /artifacts/* .
-COPY --from=energyplus-dependencies /artifacts/* .
-
 RUN apt update \
   && apt install -y \
   gdebi-core \
-  openjdk-17-jdk
+  openjdk-17-jdk \
+  && rm -rf /var/lib/apt/lists/*
 
 # RUN update-alternatives --set java /usr/lib/jvm/java-8-openjdk-amd64/jre/bin/java \
 #   && update-alternatives --set javac /usr/lib/jvm/java-8-openjdk-amd64/bin/javac
 
-RUN pip3 install *.whl
-RUN mkdir ${ENERGYPLUS_DIR} \
+RUN --mount=type=bind,from=modelica-dependencies,source=/artifacts,target=/artifacts pip3 install *.whl
+
+RUN --mount=type=bind,from=energyplus-dependencies,source=/artifacts,target=/artifacts mkdir ${ENERGYPLUS_DIR} \
   && tar -C $ENERGYPLUS_DIR/ --strip-components=1 -xzf energyplus.tar.gz \
   && ln -s $ENERGYPLUS_DIR/energyplus /usr/local/bin/ \
   && ln -s $ENERGYPLUS_DIR/ExpandObjects /usr/local/bin/ \
   && ln -s $ENERGYPLUS_DIR/runenergyplus /usr/local/bin/
 
-RUN gdebi -n openstudio.deb \
+RUN --mount=type=bind,from=energyplus-dependencies,source=/artifacts,target=/artifacts apt update \
+  && gdebi -n openstudio.deb \
   && cd /usr/local/openstudio* \
   && rm -rf EnergyPlus \
-  && ln -s ${ENERGYPLUS_DIR} EnergyPlus
+  && ln -s ${ENERGYPLUS_DIR} EnergyPlus \
+  && rm -rf /var/lib/apt/lists/*
 
 WORKDIR $HOME
