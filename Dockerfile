@@ -1,95 +1,122 @@
-FROM ubuntu:20.04 AS base
+ARG PYTHON_VERSION=3.10.14
+ARG DEBIAN_VERSION=bookworm
+FROM python:${PYTHON_VERSION}-slim-${DEBIAN_VERSION} as modelica-dependencies
+ARG SUNDIALS_VERSION=v2.7.0
+RUN apt update \
+  && apt install -y \
+  cmake \
+  liblapack-dev \
+  libsuitesparse-dev \
+  libhypre-dev \
+  curl \
+  git \
+  build-essential
 
-USER root
+RUN python3 -m pip install \
+  Cython \
+  numpy \
+  scipy \
+  matplotlib \
+  nose-py3 \
+  setuptools==69.1.0
 
+RUN ln -s /usr/lib/$(uname -m)-linux-gnu/libblas.so /usr/lib/$(uname -m)-linux-gnu/libblas_OPENMP.so
+
+WORKDIR /build
+
+RUN curl -fSsL https://portal.nersc.gov/project/sparse/superlu/superlu_mt_3.1.tar.gz | tar xz \
+  && cd SuperLU_MT_3.1 \
+  && make CFLAGS="-O2 -fPIC -fopenmp" BLASLIB="-lblas" PLAT="_OPENMP" MPLIB="-fopenmp" lib -j1 \
+  && cp -v ./lib/libsuperlu_mt_OPENMP.a /usr/lib \
+  && cp -v ./SRC/*.h /usr/include
+
+RUN git clone --depth 1 -b ${SUNDIALS_VERSION} https://github.com/LLNL/sundials.git \
+  && cd sundials \
+  && echo "target_link_libraries(sundials_idas_shared lapack blas superlu_mt_OPENMP)" >> src/idas/CMakeLists.txt \
+  && echo "target_link_libraries(sundials_kinsol_shared lapack blas superlu_mt_OPENMP)" >> src/kinsol/CMakeLists.txt \
+  && mkdir build && cd build \
+  && cmake \
+  -LAH \
+  -DSUPERLUMT_BLAS_LIBRARIES=blas \
+  -DSUPERLUMT_LIBRARIES=blas \
+  -DSUPERLUMT_INCLUDE_DIR=/usr/include \
+  -DSUPERLUMT_LIBRARY=/usr/lib/libsuperlu_mt_OPENMP.a \
+  -DSUPERLUMT_THREAD_TYPE=OpenMP \
+  -DCMAKE_INSTALL_PREFIX=/usr \
+  -DSUPERLUMT_ENABLE=ON \
+  -DLAPACK_ENABLE=ON \
+  -DEXAMPLES_ENABLE=OFF \
+  -DEXAMPLES_ENABLE_C=OFF \
+  -DBUILD_STATIC_LIBS=OFF \
+  .. \
+  && make -j4 \
+  && make install
+
+RUN git clone --depth 1 -b Assimulo-3.5.2 https://github.com/modelon-community/Assimulo.git \
+  && cd Assimulo \
+  && python3 setup.py install --user --sundials-home=/usr --blas-home=/usr/lib/$(uname -m)-linux-gnu --lapack-home=/usr/lib/$(uname -m)-linux-gnu --superlu-home=/usr \
+  && python3 setup.py bdist_wheel
+
+RUN git clone --depth 1 -b 2.4.1 https://github.com/modelon-community/fmi-library.git \
+  && cd fmi-library \
+  && sed -i "/CMAKE_INSTALL_PREFIX/d" CMakeLists.txt \
+  && mkdir fmi_build && cd fmi_build \
+  && mkdir fmi_library \
+  && cmake -DCMAKE_INSTALL_PREFIX=/build/fmi-libary/fmi_library .. \
+  && make -j4 \
+  && make install
+
+RUN git clone --depth 1 -b PyFMI-2.13.1 https://github.com/modelon-community/PyFMI.git \
+  && cd PyFMI \
+  && python3 setup.py bdist_wheel --fmil-home=/build/fmi-libary/fmi_library
+
+WORKDIR /artifacts
+
+RUN cp /build/Assimulo/build/dist/* . \
+  && cp /build/PyFMI/dist/* .
+
+FROM python:${PYTHON_VERSION}-slim-${DEBIAN_VERSION} as energyplus-dependencies
+ARG OPENSTUDIO_VERSION=3.8.0
+ARG OPENSTUDIO_VERSION_SHA=f953b6fcaf
+ARG ENERGYPLUS_VERSION=24.1.0
+ARG ENERGYPLUS_VERSION_SHA=9d7789a3ac
+
+RUN apt update \
+  && apt install -y \
+  curl
+
+WORKDIR /artifacts
+RUN curl -SfL https://github.com/NREL/EnergyPlus/releases/download/v${ENERGYPLUS_VERSION}/EnergyPlus-${ENERGYPLUS_VERSION}-${ENERGYPLUS_VERSION_SHA}-Linux-Ubuntu22.04-$(uname -m).tar.gz -o energyplus.tar.gz
+RUN curl -SfL https://github.com/NREL/OpenStudio/releases/download/v${OPENSTUDIO_VERSION}/OpenStudio-${OPENSTUDIO_VERSION}+${OPENSTUDIO_VERSION_SHA}-Ubuntu-22.04-$(uname -m).deb -o openstudio.deb
+
+FROM python:${PYTHON_VERSION}-slim-${DEBIAN_VERSION} as alfalfa-dependencies
+
+ENV ENERGYPLUS_DIR /usr/local/EnergyPlus
 ENV HOME /alfalfa
 
-# Need to set the lang to use Python 3.8 with Poetry
-ENV LANG C.UTF-8
-ENV DEBIAN_FRONTEND noninteractive
-ENV ROOT_DIR /usr/local
-ENV BUILD_DIR $HOME/build
+WORKDIR /artifacts
 
+COPY --from=modelica-dependencies /artifacts/* .
+COPY --from=energyplus-dependencies /artifacts/* .
 
-RUN apt-get update \
-    && apt-get install -y \
-    ca-certificates \
-    curl \
-    gdebi-core \
-    openjdk-8-jdk \
-    libgfortran4 \
-    python3-venv \
-    python3-pip \
-    && rm -rf /var/lib/apt/lists/*
+RUN apt update \
+  && apt install -y \
+  gdebi-core \
+  openjdk-17-jdk
 
+# RUN update-alternatives --set java /usr/lib/jvm/java-8-openjdk-amd64/jre/bin/java \
+#   && update-alternatives --set javac /usr/lib/jvm/java-8-openjdk-amd64/bin/javac
+
+RUN pip3 install *.whl
+RUN mkdir ${ENERGYPLUS_DIR} \
+  && tar -C $ENERGYPLUS_DIR/ --strip-components=1 -xzf energyplus.tar.gz \
+  && ln -s $ENERGYPLUS_DIR/energyplus /usr/local/bin/ \
+  && ln -s $ENERGYPLUS_DIR/ExpandObjects /usr/local/bin/ \
+  && ln -s $ENERGYPLUS_DIR/runenergyplus /usr/local/bin/
+
+RUN gdebi -n openstudio.deb \
+  && cd /usr/local/openstudio* \
+  && rm -rf EnergyPlus \
+  && ln -s ${ENERGYPLUS_DIR} EnergyPlus
 
 WORKDIR $HOME
-# Use set in update-alternatives instead of config to
-# provide non-interactive input.
-RUN update-alternatives --set java /usr/lib/jvm/java-8-openjdk-amd64/jre/bin/java \
-    && update-alternatives --set javac /usr/lib/jvm/java-8-openjdk-amd64/bin/javac \
-    && curl -SLO http://openstudio-resources.s3.amazonaws.com/bcvtb-linux.tar.gz \
-    && tar -xzf bcvtb-linux.tar.gz \
-    && rm bcvtb-linux.tar.gz
-
-WORKDIR $BUILD_DIR
-
-ENV OPENSTUDIO_DOWNLOAD_URL https://github.com/NREL/OpenStudio/releases/download/v3.8.0/OpenStudio-3.8.0+f953b6fcaf-Ubuntu-20.04-x86_64.deb
-
-# mlep / external interface needs parts of EnergyPlus that are not included with OpenStudio
-# expandobjects, runenergyplus might be two examples, but the need to install EnergyPlus separately from OpenStudio
-# might be revaluated
-ENV ENERGYPLUS_DIR /usr/local/EnergyPlus
-ENV ENERGYPLUS_DOWNLOAD_URL https://github.com/NREL/EnergyPlus/releases/download/v24.1.0/EnergyPlus-24.1.0-9d7789a3ac-Linux-Ubuntu20.04-x86_64.tar.gz
-
-# We would rather use the self extracting tarball distribution of EnergyPlus, but there appears to
-# be a bug in the installation script so using the tar.gz manually here and making our own links
-RUN curl -SL $ENERGYPLUS_DOWNLOAD_URL -o energyplus.tar.gz\
-    && mkdir $ENERGYPLUS_DIR \
-    && tar -C $ENERGYPLUS_DIR/ --strip-components=1 -xzf energyplus.tar.gz \
-    && ln -s $ENERGYPLUS_DIR/energyplus /usr/local/bin/ \
-    && ln -s $ENERGYPLUS_DIR/ExpandObjects /usr/local/bin/ \
-    && ln -s $ENERGYPLUS_DIR/runenergyplus /usr/local/bin/ \
-    && rm energyplus.tar.gz
-
-RUN curl -SL $OPENSTUDIO_DOWNLOAD_URL -o openstudio.deb\
-    && gdebi -n openstudio.deb \
-    && rm -f openstudio.deb \
-    && cd /usr/local/openstudio* \
-    && rm -rf EnergyPlus \
-    && ln -s $ENERGYPLUS_DIR EnergyPlus
-
-# Install commands for Spawn
-ENV SPAWN_VERSION=0.3.0-69040695f9
-RUN curl -SL https://spawn.s3.amazonaws.com/custom/Spawn-$SPAWN_VERSION-Linux.tar.gz -o spawn.tar.gz \
-    && tar -C /usr/local/ -xzf spawn.tar.gz \
-    && ln -s /usr/local/Spawn-$SPAWN_VERSION-Linux/bin/spawn-$SPAWN_VERSION /usr/local/bin/ \
-    && rm spawn.tar.gz
-
-## MODELICA
-# Modelica requires libgfortran3 which is not in apt for 20.04
-RUN curl -SLO http://archive.ubuntu.com/ubuntu/pool/universe/g/gcc-6/gcc-6-base_6.4.0-17ubuntu1_amd64.deb \
-    && curl -SLO http://archive.ubuntu.com/ubuntu/pool/universe/g/gcc-6/libgfortran3_6.4.0-17ubuntu1_amd64.deb \
-    && dpkg -i gcc-6-base_6.4.0-17ubuntu1_amd64.deb \
-    && dpkg -i libgfortran3_6.4.0-17ubuntu1_amd64.deb \
-    && ln -s /usr/lib/x86_64-linux-gnu/libffi.so.7 /usr/lib/x86_64-linux-gnu/libffi.so.6 \
-    && rm *.deb
-
-COPY requirements.txt $BUILD_DIR
-RUN pip install -r requirements.txt && \
-    rm requirements.txt
-
-# Install Assimulo for PyFMI
-RUN curl -SLO https://github.com/modelon-community/Assimulo/releases/download/Assimulo-3.4.3/Assimulo-3.4.3-cp38-cp38-linux_x86_64.whl \
-    && pip install Assimulo-3.4.3-cp38-cp38-linux_x86_64.whl \
-    && rm Assimulo-3.4.3-cp38-cp38-linux_x86_64.whl
-
-# Install PyFMI
-RUN curl -SLO https://github.com/modelon-community/PyFMI/releases/download/PyFMI-2.11.0/PyFMI-2.11.0-cp38-cp38-linux_x86_64.whl \
-    && pip install PyFMI-2.11.0-cp38-cp38-linux_x86_64.whl \
-    && rm PyFMI-2.11.0-cp38-cp38-linux_x86_64.whl
-
-ENV PYTHONPATH=${PYTHONPATH}:${ENERGYPLUS_DIR}
-
-ENV SEPARATE_PROCESS_JVM /usr/lib/jvm/java-8-openjdk-amd64/
-ENV JAVA_HOME /usr/lib/jvm/java-8-openjdk-amd64/
