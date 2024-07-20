@@ -86,8 +86,10 @@ RUN apt update \
   curl
 
 WORKDIR /artifacts
-RUN curl -SfL https://github.com/NREL/EnergyPlus/releases/download/v${ENERGYPLUS_VERSION}/EnergyPlus-${ENERGYPLUS_VERSION}-${ENERGYPLUS_VERSION_SHA}-Linux-Ubuntu22.04-$(uname -m).tar.gz -o energyplus.tar.gz
-RUN curl -SfL https://github.com/NREL/OpenStudio/releases/download/v${OPENSTUDIO_VERSION}/OpenStudio-${OPENSTUDIO_VERSION}+${OPENSTUDIO_VERSION_SHA}-Ubuntu-22.04-$(uname -m).deb -o openstudio.deb
+RUN export ARCHITECTURE=x86_64 \
+  && if [ $(uname -m) == "aarch64" ]; then export ARCHITECTURE=arm64; fi \
+  && curl -SfL https://github.com/NREL/EnergyPlus/releases/download/v${ENERGYPLUS_VERSION}/EnergyPlus-${ENERGYPLUS_VERSION}-${ENERGYPLUS_VERSION_SHA}-Linux-Ubuntu22.04-${ARCHITECTURE}.tar.gz -o energyplus.tar.gz \
+  && curl -SfL https://github.com/NREL/OpenStudio/releases/download/v${OPENSTUDIO_VERSION}/OpenStudio-${OPENSTUDIO_VERSION}+${OPENSTUDIO_VERSION_SHA}-Ubuntu-22.04-${ARCHITECTURE}.deb -o openstudio.deb
 
 FROM python:${PYTHON_VERSION}-slim-${DEBIAN_VERSION} as alfalfa-dependencies
 
