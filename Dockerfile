@@ -1,7 +1,8 @@
-ARG PYTHON_VERSION=3.8.19
+ARG PYTHON_VERSION=3.10.14
 ARG DEBIAN_VERSION=bookworm
 FROM python:${PYTHON_VERSION}-slim-${DEBIAN_VERSION} as modelica-dependencies
 ARG SUNDIALS_VERSION=v2.7.0
+ARG ASSIMULO_VERSION=3.5.2
 RUN apt update \
   && apt install -y \
   cmake \
@@ -52,7 +53,7 @@ RUN git clone --depth 1 -b ${SUNDIALS_VERSION} https://github.com/LLNL/sundials.
   && make -j4 \
   && make install
 
-RUN git clone --depth 1 -b Assimulo-3.5.2 https://github.com/modelon-community/Assimulo.git \
+RUN git clone --depth 1 -b Assimulo-${ASSIMULO_VERSION} https://github.com/modelon-community/Assimulo.git \
   && cd Assimulo \
   && python3 setup.py install --user --sundials-home=/usr --blas-home=/usr/lib/$(uname -m)-linux-gnu --lapack-home=/usr/lib/$(uname -m)-linux-gnu --superlu-home=/usr \
   && python3 setup.py bdist_wheel
@@ -91,7 +92,113 @@ RUN export ARCHITECTURE=x86_64 \
   && curl -SfL https://github.com/NREL/EnergyPlus/releases/download/v${ENERGYPLUS_VERSION}/EnergyPlus-${ENERGYPLUS_VERSION}-${ENERGYPLUS_VERSION_SHA}-Linux-Ubuntu22.04-${ARCHITECTURE}.tar.gz -o energyplus.tar.gz \
   && curl -SfL https://github.com/NREL/OpenStudio/releases/download/v${OPENSTUDIO_VERSION}/OpenStudio-${OPENSTUDIO_VERSION}+${OPENSTUDIO_VERSION_SHA}-Ubuntu-22.04-${ARCHITECTURE}.deb -o openstudio.deb
 
-FROM python:${PYTHON_VERSION}-slim-${DEBIAN_VERSION} as alfalfa-dependencies
+FROM python:${PYTHON_VERSION}-slim-${DEBIAN_VERSION} as dual-python
+
+  ENV PYTHON_VERSION 3.8.19
+  ENV GPG_KEY E3FF2839C048B25C084DEBE9B26995E310250568
+
+  RUN set -eux; \
+      \
+      savedAptMark="$(apt-mark showmanual)"; \
+      apt-get update; \
+      apt-get install -y --no-install-recommends \
+          dpkg-dev \
+          gcc \
+          gnupg \
+          libbluetooth-dev \
+          libbz2-dev \
+          libc6-dev \
+          libdb-dev \
+          libexpat1-dev \
+          libffi-dev \
+          libgdbm-dev \
+          liblzma-dev \
+          libncursesw5-dev \
+          libreadline-dev \
+          libsqlite3-dev \
+          libssl-dev \
+          make \
+          tk-dev \
+          uuid-dev \
+          wget \
+          xz-utils \
+          zlib1g-dev \
+      ; \
+      \
+      wget -O python.tar.xz "https://www.python.org/ftp/python/${PYTHON_VERSION%%[a-z]*}/Python-$PYTHON_VERSION.tar.xz"; \
+      wget -O python.tar.xz.asc "https://www.python.org/ftp/python/${PYTHON_VERSION%%[a-z]*}/Python-$PYTHON_VERSION.tar.xz.asc"; \
+      GNUPGHOME="$(mktemp -d)"; export GNUPGHOME; \
+      gpg --batch --keyserver hkps://keys.openpgp.org --recv-keys "$GPG_KEY"; \
+      gpg --batch --verify python.tar.xz.asc python.tar.xz; \
+      gpgconf --kill all; \
+      rm -rf "$GNUPGHOME" python.tar.xz.asc; \
+      mkdir -p /usr/src/python; \
+      tar --extract --directory /usr/src/python --strip-components=1 --file python.tar.xz; \
+      rm python.tar.xz; \
+      \
+      cd /usr/src/python; \
+      gnuArch="$(dpkg-architecture --query DEB_BUILD_GNU_TYPE)"; \
+      ./configure \
+          --build="$gnuArch" \
+          --enable-loadable-sqlite-extensions \
+          --enable-optimizations \
+          --enable-option-checking=fatal \
+          --enable-shared \
+          --with-system-expat \
+          --without-ensurepip \
+      ; \
+      nproc="$(nproc)"; \
+      EXTRA_CFLAGS="$(dpkg-buildflags --get CFLAGS)"; \
+      LDFLAGS="$(dpkg-buildflags --get LDFLAGS)"; \
+      LDFLAGS="${LDFLAGS:--Wl},--strip-all"; \
+      make -j "$nproc" \
+          "EXTRA_CFLAGS=${EXTRA_CFLAGS:-}" \
+          "LDFLAGS=${LDFLAGS:-}" \
+          "PROFILE_TASK=${PROFILE_TASK:-}" \
+      ; \
+  # https://github.com/docker-library/python/issues/784
+  # prevent accidental usage of a system installed libpython of the same version
+      rm python; \
+      make -j "$nproc" \
+          "EXTRA_CFLAGS=${EXTRA_CFLAGS:-}" \
+          "LDFLAGS=${LDFLAGS:--Wl},-rpath='\$\$ORIGIN/../lib'" \
+          "PROFILE_TASK=${PROFILE_TASK:-}" \
+          python \
+      ; \
+      make altinstall; \
+      \
+      cd /; \
+      rm -rf /usr/src/python; \
+      \
+      find /usr/local -depth \
+          \( \
+              \( -type d -a \( -name test -o -name tests -o -name idle_test \) \) \
+              -o \( -type f -a \( -name '*.pyc' -o -name '*.pyo' -o -name 'libpython*.a' \) \) \
+              -o \( -type f -a -name 'wininst-*.exe' \) \
+          \) -exec rm -rf '{}' + \
+      ; \
+      \
+      ldconfig; \
+      \
+      apt-mark auto '.*' > /dev/null; \
+      apt-mark manual $savedAptMark; \
+      find /usr/local -type f -executable -not \( -name '*tkinter*' \) -exec ldd '{}' ';' \
+          | awk '/=>/ { so = $(NF-1); if (index(so, "/usr/local/") == 1) { next }; gsub("^/(usr/)?", "", so); printf "*%s\n", so }' \
+          | sort -u \
+          | xargs -r dpkg-query --search \
+          | cut -d: -f1 \
+          | sort -u \
+          | xargs -r apt-mark manual \
+      ; \
+      apt-get purge -y --auto-remove -o APT::AutoRemove::RecommendsImportant=false; \
+      rm -rf /var/lib/apt/lists/*; \
+      \
+      python3.8 --version
+
+  RUN python3.8 -m ensurepip --altinstall
+
+
+FROM dual-python as alfalfa-dependencies
 
 ENV ENERGYPLUS_DIR /usr/local/EnergyPlus
 ENV HOME /alfalfa
