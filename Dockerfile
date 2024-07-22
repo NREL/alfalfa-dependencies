@@ -90,7 +90,8 @@ WORKDIR /artifacts
 RUN export ARCHITECTURE=x86_64 \
   && if [ "$(uname -m)" = "aarch64" ]; then export ARCHITECTURE=arm64; fi \
   && curl -SfL https://github.com/NREL/EnergyPlus/releases/download/v${ENERGYPLUS_VERSION}/EnergyPlus-${ENERGYPLUS_VERSION}-${ENERGYPLUS_VERSION_SHA}-Linux-Ubuntu22.04-${ARCHITECTURE}.tar.gz -o energyplus.tar.gz \
-  && curl -SfL https://github.com/NREL/OpenStudio/releases/download/v${OPENSTUDIO_VERSION}/OpenStudio-${OPENSTUDIO_VERSION}+${OPENSTUDIO_VERSION_SHA}-Ubuntu-22.04-${ARCHITECTURE}.deb -o openstudio.deb
+  && curl -SfL https://github.com/NREL/OpenStudio/releases/download/v${OPENSTUDIO_VERSION}/OpenStudio-${OPENSTUDIO_VERSION}+${OPENSTUDIO_VERSION_SHA}-Ubuntu-22.04-${ARCHITECTURE}.deb -o openstudio.deb \
+  && curl -SfL http://openstudio-resources.s3.amazonaws.com/bcvtb-linux.tar.gz -o bcvtb.tar.gz
 
 FROM python:${PYTHON_VERSION}-slim-${DEBIAN_VERSION} as dual-python
 
@@ -230,3 +231,6 @@ RUN --mount=type=bind,from=energyplus-dependencies,source=/artifacts,target=/art
   && rm -rf /var/lib/apt/lists/*
 
 WORKDIR $HOME
+
+# Only the xml lib component of bcvtb is actaully required for communication, so we just extract that to save space
+RUN --mount=type=bind,from=energyplus-dependencies,source=/artifacts,target=/artifacts tar -xzf /artifacts/bcvtb.tar.gz bcvtb/lib/xml
