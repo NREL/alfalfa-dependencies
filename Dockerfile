@@ -11,7 +11,8 @@ RUN apt update \
   libhypre-dev \
   curl \
   git \
-  build-essential
+  build-essential \
+  dpkg-dev
 
 RUN python3 -m pip install \
   Cython \
@@ -21,7 +22,8 @@ RUN python3 -m pip install \
   nose-py3 \
   setuptools==69.1.0
 
-RUN ln -s /usr/lib/$(uname -m)-linux-gnu/libblas.so /usr/lib/$(uname -m)-linux-gnu/libblas_OPENMP.so
+RUN gnuArch="$(dpkg-architecture --query DEB_HOST_MULTIARCH)"; \
+ln -s /usr/lib/$gnuArch/libblas.so /usr/lib/$gnuArch/libblas_OPENMP.so
 
 WORKDIR /build
 
@@ -53,9 +55,10 @@ RUN git clone --depth 1 -b ${SUNDIALS_VERSION} https://github.com/LLNL/sundials.
   && make -j4 \
   && make install
 
-RUN git clone --depth 1 -b Assimulo-${ASSIMULO_VERSION} https://github.com/modelon-community/Assimulo.git \
+RUN gnuArch="$(dpkg-architecture --query DEB_HOST_MULTIARCH)" \
+  && git clone --depth 1 -b Assimulo-${ASSIMULO_VERSION} https://github.com/modelon-community/Assimulo.git \
   && cd Assimulo \
-  && python3 setup.py install --user --sundials-home=/usr --blas-home=/usr/lib/$(uname -m)-linux-gnu --lapack-home=/usr/lib/$(uname -m)-linux-gnu --superlu-home=/usr \
+  && python3 setup.py install --user --sundials-home=/usr --blas-home=/usr/lib/${gnuArch} --lapack-home=/usr/lib/${gnuArch} --superlu-home=/usr \
   && python3 setup.py bdist_wheel
 
 RUN git clone --depth 1 -b 2.4.1 https://github.com/modelon-community/fmi-library.git \
@@ -76,6 +79,12 @@ WORKDIR /artifacts
 RUN cp /build/Assimulo/build/dist/* . \
   && cp /build/PyFMI/dist/* .
 
+RUN gnuArch="$(dpkg-architecture --query DEB_HOST_ARCH_CPU)"; export gnuArch\
+  && curl -SfL http://ftp.us.debian.org/debian/pool/main/g/gcc-7/libgfortran4_7.4.0-6_${gnuArch}.deb -o libgfortran4.deb \
+  && curl -SfL http://ftp.us.debian.org/debian/pool/main/g/gcc-7/gcc-7-base_7.4.0-6_${gnuArch}.deb -o gcc-7.deb \
+  && curl -SfL https://archive.debian.org/debian/pool/main/g/gcc-6/gcc-6-base_6.3.0-18+deb9u1_${gnuArch}.deb -o gcc-6.deb \
+  && curl -SfL https://archive.debian.org/debian/pool/main/g/gcc-6/libgfortran3_6.3.0-18+deb9u1_${gnuArch}.deb -o libgfortran3.deb
+
 FROM python:${PYTHON_VERSION}-slim-${DEBIAN_VERSION} as energyplus-dependencies
 ARG OPENSTUDIO_VERSION=3.8.0
 ARG OPENSTUDIO_VERSION_SHA=f953b6fcaf
@@ -87,11 +96,12 @@ RUN apt update \
   curl
 
 WORKDIR /artifacts
-RUN export ARCHITECTURE=x86_64 \
-  && if [ "$(uname -m)" = "aarch64" ]; then export ARCHITECTURE=arm64; fi \
-  && curl -SfL https://github.com/NREL/EnergyPlus/releases/download/v${ENERGYPLUS_VERSION}/EnergyPlus-${ENERGYPLUS_VERSION}-${ENERGYPLUS_VERSION_SHA}-Linux-Ubuntu22.04-${ARCHITECTURE}.tar.gz -o energyplus.tar.gz \
-  && curl -SfL https://github.com/NREL/OpenStudio/releases/download/v${OPENSTUDIO_VERSION}/OpenStudio-${OPENSTUDIO_VERSION}+${OPENSTUDIO_VERSION_SHA}-Ubuntu-22.04-${ARCHITECTURE}.deb -o openstudio.deb \
-  && curl -SfL http://openstudio-resources.s3.amazonaws.com/bcvtb-linux.tar.gz -o bcvtb.tar.gz
+
+RUN export gnuArch=x86_64; if [ "$(uname -m)" = "aarch64" ]; then gnuArch=arm64; fi; export gnuArch \
+  && echo https://github.com/NREL/EnergyPlus/releases/download/v${ENERGYPLUS_VERSION}/EnergyPlus-${ENERGYPLUS_VERSION}-${ENERGYPLUS_VERSION_SHA}-Linux-Ubuntu22.04-${gnuArch}.tar.gz \
+  && curl -SfL https://github.com/NREL/EnergyPlus/releases/download/v${ENERGYPLUS_VERSION}/EnergyPlus-${ENERGYPLUS_VERSION}-${ENERGYPLUS_VERSION_SHA}-Linux-Ubuntu22.04-${gnuArch}.tar.gz -o energyplus.tar.gz \
+  && curl -SfL https://github.com/NREL/OpenStudio/releases/download/v${OPENSTUDIO_VERSION}/OpenStudio-${OPENSTUDIO_VERSION}+${OPENSTUDIO_VERSION_SHA}-Ubuntu-22.04-${gnuArch}.deb -o openstudio.deb \
+  && curl -SfL https://openstudio-resources.s3.amazonaws.com/bcvtb-linux.tar.gz -o bcvtb.tar.gz
 
 FROM python:${PYTHON_VERSION}-slim-${DEBIAN_VERSION} as dual-python
 
@@ -215,7 +225,12 @@ RUN apt update \
 # RUN update-alternatives --set java /usr/lib/jvm/java-8-openjdk-amd64/jre/bin/java \
 #   && update-alternatives --set javac /usr/lib/jvm/java-8-openjdk-amd64/bin/javac
 
-RUN --mount=type=bind,from=modelica-dependencies,source=/artifacts,target=/artifacts pip3 install *.whl
+RUN --mount=type=bind,from=modelica-dependencies,source=/artifacts,target=/artifacts pip3 install *.whl \
+  && apt update \
+  && gdebi -n gcc-6.deb \
+  && gdebi -n libgfortran3.deb \
+  && gdebi -n gcc-7.deb \
+  && gdebi -n libgfortran4.deb
 
 RUN --mount=type=bind,from=energyplus-dependencies,source=/artifacts,target=/artifacts mkdir ${ENERGYPLUS_DIR} \
   && tar -C $ENERGYPLUS_DIR/ --strip-components=1 -xzf energyplus.tar.gz \
