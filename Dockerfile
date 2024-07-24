@@ -1,7 +1,7 @@
 ARG PYTHON_VERSION=3.10.14
 ARG DEBIAN_VERSION=bookworm
 FROM python:${PYTHON_VERSION}-slim-${DEBIAN_VERSION} as modelica-dependencies
-ARG SUNDIALS_VERSION=v2.7.0
+ARG SUNDIALS_VERSION=v3.2.0
 ARG ASSIMULO_VERSION=3.5.2
 RUN apt update \
   && apt install -y \
@@ -35,8 +35,8 @@ RUN curl -fSsL https://portal.nersc.gov/project/sparse/superlu/superlu_mt_3.1.ta
 
 RUN git clone --depth 1 -b ${SUNDIALS_VERSION} https://github.com/LLNL/sundials.git \
   && cd sundials \
-  && echo "target_link_libraries(sundials_idas_shared lapack blas superlu_mt_OPENMP)" >> src/idas/CMakeLists.txt \
-  && echo "target_link_libraries(sundials_kinsol_shared lapack blas superlu_mt_OPENMP)" >> src/kinsol/CMakeLists.txt \
+  # && echo "target_link_libraries(sundials_idas_shared lapack blas superlu_mt_OPENMP)" >> src/idas/CMakeLists.txt \
+  # && echo "target_link_libraries(sundials_kinsol_shared lapack blas superlu_mt_OPENMP)" >> src/kinsol/CMakeLists.txt \
   && mkdir build && cd build \
   && cmake \
   -LAH \
@@ -45,21 +45,22 @@ RUN git clone --depth 1 -b ${SUNDIALS_VERSION} https://github.com/LLNL/sundials.
   -DSUPERLUMT_INCLUDE_DIR=/usr/include \
   -DSUPERLUMT_LIBRARY=/usr/lib/libsuperlu_mt_OPENMP.a \
   -DSUPERLUMT_THREAD_TYPE=OpenMP \
-  -DCMAKE_INSTALL_PREFIX=/usr \
+  -DCMAKE_INSTALL_PREFIX=/artifacts/sundials \
   -DSUPERLUMT_ENABLE=ON \
   -DLAPACK_ENABLE=ON \
   -DEXAMPLES_ENABLE=OFF \
   -DEXAMPLES_ENABLE_C=OFF \
-  -DBUILD_STATIC_LIBS=OFF \
+  # -DBUILD_STATIC_LIBS=OFF \
   .. \
   && make -j4 \
-  && make install
+  && make install \
+  && cp -r /artifacts/sundials/* /usr
 
 RUN gnuArch="$(dpkg-architecture --query DEB_HOST_MULTIARCH)" \
   && git clone --depth 1 -b Assimulo-${ASSIMULO_VERSION} https://github.com/modelon-community/Assimulo.git \
   && cd Assimulo \
-  && python3 setup.py install --user --sundials-home=/usr --blas-home=/usr/lib/${gnuArch} --lapack-home=/usr/lib/${gnuArch} --superlu-home=/usr \
-  && python3 setup.py bdist_wheel
+  && python3 setup.py install --sundials-home=/usr --blas-home=/usr/lib/${gnuArch} --lapack-home=/usr/lib/${gnuArch} --superlu-home=/usr \
+  && python3 setup.py bdist_wheel --sundials-home=/usr --blas-home=/usr/lib/${gnuArch} --lapack-home=/usr/lib/${gnuArch} --superlu-home=/usr
 
 RUN git clone --depth 1 -b 2.4.1 https://github.com/modelon-community/fmi-library.git \
   && cd fmi-library \
@@ -220,6 +221,7 @@ RUN apt update \
   && apt install -y \
   gdebi-core \
   openjdk-17-jdk \
+  libgfortran5 \
   && rm -rf /var/lib/apt/lists/*
 
 # RUN update-alternatives --set java /usr/lib/jvm/java-8-openjdk-amd64/jre/bin/java \
@@ -230,7 +232,8 @@ RUN --mount=type=bind,from=modelica-dependencies,source=/artifacts,target=/artif
   && gdebi -n gcc-6.deb \
   && gdebi -n libgfortran3.deb \
   && gdebi -n gcc-7.deb \
-  && gdebi -n libgfortran4.deb
+  && gdebi -n libgfortran4.deb \
+  && cp -r /artifacts/sundials/* /usr
 
 RUN --mount=type=bind,from=energyplus-dependencies,source=/artifacts,target=/artifacts mkdir ${ENERGYPLUS_DIR} \
   && tar -C $ENERGYPLUS_DIR/ --strip-components=1 -xzf energyplus.tar.gz \
