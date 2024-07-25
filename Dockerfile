@@ -1,7 +1,9 @@
 ARG PYTHON_VERSION=3.10.14
 ARG DEBIAN_VERSION=bookworm
-FROM python:${PYTHON_VERSION}-slim-${DEBIAN_VERSION} as modelica-dependencies
-ARG SUNDIALS_VERSION=v3.2.0
+
+# Build modelica-dependencies on bullseye (this uses an older version of GLibc which allows for making manylinux wheels)
+FROM python:${PYTHON_VERSION}-slim-bullseye AS modelica-dependencies
+ARG SUNDIALS_VERSION=v7.1.1
 ARG ASSIMULO_VERSION=3.5.2
 RUN apt update \
   && apt install -y \
@@ -12,15 +14,17 @@ RUN apt update \
   curl \
   git \
   build-essential \
-  dpkg-dev
+  dpkg-dev \
+  && rm -rf /var/lib/apt/lists/*
 
 RUN python3 -m pip install \
   Cython \
   numpy \
   scipy \
   matplotlib \
-  nose-py3 \
-  setuptools==69.1.0
+  setuptools==69.1.0 \
+  auditwheel \
+  patchelf
 
 RUN gnuArch="$(dpkg-architecture --query DEB_HOST_MULTIARCH)"; \
 ln -s /usr/lib/$gnuArch/libblas.so /usr/lib/$gnuArch/libblas_OPENMP.so
@@ -35,8 +39,6 @@ RUN curl -fSsL https://portal.nersc.gov/project/sparse/superlu/superlu_mt_3.1.ta
 
 RUN git clone --depth 1 -b ${SUNDIALS_VERSION} https://github.com/LLNL/sundials.git \
   && cd sundials \
-  # && echo "target_link_libraries(sundials_idas_shared lapack blas superlu_mt_OPENMP)" >> src/idas/CMakeLists.txt \
-  # && echo "target_link_libraries(sundials_kinsol_shared lapack blas superlu_mt_OPENMP)" >> src/kinsol/CMakeLists.txt \
   && mkdir build && cd build \
   && cmake \
   -LAH \
@@ -45,22 +47,22 @@ RUN git clone --depth 1 -b ${SUNDIALS_VERSION} https://github.com/LLNL/sundials.
   -DSUPERLUMT_INCLUDE_DIR=/usr/include \
   -DSUPERLUMT_LIBRARY=/usr/lib/libsuperlu_mt_OPENMP.a \
   -DSUPERLUMT_THREAD_TYPE=OpenMP \
-  -DCMAKE_INSTALL_PREFIX=/artifacts/sundials \
+  -DCMAKE_INSTALL_PREFIX=/usr \
   -DSUPERLUMT_ENABLE=ON \
+  -DSUNDIALS_INDEX_SIZE=32 \
   -DLAPACK_ENABLE=ON \
   -DEXAMPLES_ENABLE=OFF \
   -DEXAMPLES_ENABLE_C=OFF \
-  # -DBUILD_STATIC_LIBS=OFF \
   .. \
   && make -j4 \
-  && make install \
-  && cp -r /artifacts/sundials/* /usr
+  && make install
 
 RUN gnuArch="$(dpkg-architecture --query DEB_HOST_MULTIARCH)" \
-  && git clone --depth 1 -b Assimulo-${ASSIMULO_VERSION} https://github.com/modelon-community/Assimulo.git \
+  && git clone --depth 1 -b Assimulo-3.5.2 https://github.com/modelon-community/Assimulo.git \
   && cd Assimulo \
-  && python3 setup.py install --sundials-home=/usr --blas-home=/usr/lib/${gnuArch} --lapack-home=/usr/lib/${gnuArch} --superlu-home=/usr \
-  && python3 setup.py bdist_wheel --sundials-home=/usr --blas-home=/usr/lib/${gnuArch} --lapack-home=/usr/lib/${gnuArch} --superlu-home=/usr
+  && python3 setup.py bdist_wheel --sundials-home=/usr --blas-home=/usr/lib/${gnuArch} --lapack-home=/usr/lib/${gnuArch} --superlu-home=/usr \
+  && auditwheel repair --plat manylinux_2_31_$(uname -m) build/dist/*.whl \
+  && pip3 install wheelhouse/*.whl
 
 RUN git clone --depth 1 -b 2.4.1 https://github.com/modelon-community/fmi-library.git \
   && cd fmi-library \
@@ -73,20 +75,21 @@ RUN git clone --depth 1 -b 2.4.1 https://github.com/modelon-community/fmi-librar
 
 RUN git clone --depth 1 -b PyFMI-2.13.1 https://github.com/modelon-community/PyFMI.git \
   && cd PyFMI \
-  && python3 setup.py bdist_wheel --fmil-home=/build/fmi-libary/fmi_library
+  && python3 setup.py bdist_wheel --fmil-home=/build/fmi-libary/fmi_library --with-openmp\
+  && auditwheel repair --plat manylinux_2_31_$(uname -m) dist/*.whl
 
 WORKDIR /artifacts
 
-RUN cp /build/Assimulo/build/dist/* . \
-  && cp /build/PyFMI/dist/* .
+RUN cp /build/Assimulo/wheelhouse/* . \
+  && cp /build/PyFMI/wheelhouse/* .
 
-RUN gnuArch="$(dpkg-architecture --query DEB_HOST_ARCH_CPU)"; export gnuArch\
+RUN gnuArch="$(dpkg-architecture --query DEB_HOST_ARCH_CPU)"\
   && curl -SfL http://ftp.us.debian.org/debian/pool/main/g/gcc-7/libgfortran4_7.4.0-6_${gnuArch}.deb -o libgfortran4.deb \
   && curl -SfL http://ftp.us.debian.org/debian/pool/main/g/gcc-7/gcc-7-base_7.4.0-6_${gnuArch}.deb -o gcc-7.deb \
   && curl -SfL https://archive.debian.org/debian/pool/main/g/gcc-6/gcc-6-base_6.3.0-18+deb9u1_${gnuArch}.deb -o gcc-6.deb \
   && curl -SfL https://archive.debian.org/debian/pool/main/g/gcc-6/libgfortran3_6.3.0-18+deb9u1_${gnuArch}.deb -o libgfortran3.deb
 
-FROM python:${PYTHON_VERSION}-slim-${DEBIAN_VERSION} as energyplus-dependencies
+FROM python:${PYTHON_VERSION}-slim-${DEBIAN_VERSION} AS energyplus-dependencies
 ARG OPENSTUDIO_VERSION=3.8.0
 ARG OPENSTUDIO_VERSION_SHA=f953b6fcaf
 ARG ENERGYPLUS_VERSION=24.1.0
@@ -94,7 +97,8 @@ ARG ENERGYPLUS_VERSION_SHA=9d7789a3ac
 
 RUN apt update \
   && apt install -y \
-  curl
+  curl \
+  && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /artifacts
 
@@ -104,10 +108,10 @@ RUN export gnuArch=x86_64; if [ "$(uname -m)" = "aarch64" ]; then gnuArch=arm64;
   && curl -SfL https://github.com/NREL/OpenStudio/releases/download/v${OPENSTUDIO_VERSION}/OpenStudio-${OPENSTUDIO_VERSION}+${OPENSTUDIO_VERSION_SHA}-Ubuntu-22.04-${gnuArch}.deb -o openstudio.deb \
   && curl -SfL https://openstudio-resources.s3.amazonaws.com/bcvtb-linux.tar.gz -o bcvtb.tar.gz
 
-FROM python:${PYTHON_VERSION}-slim-${DEBIAN_VERSION} as dual-python
+FROM python:${PYTHON_VERSION}-slim-${DEBIAN_VERSION} AS dual-python
 
-  ENV PYTHON_VERSION 3.8.19
-  ENV GPG_KEY E3FF2839C048B25C084DEBE9B26995E310250568
+  ENV PYTHON_VERSION=3.8.19
+  ENV GPG_KEY=E3FF2839C048B25C084DEBE9B26995E310250568
 
   RUN set -eux; \
       \
@@ -210,10 +214,10 @@ FROM python:${PYTHON_VERSION}-slim-${DEBIAN_VERSION} as dual-python
   RUN python3.8 -m ensurepip --altinstall
 
 
-FROM dual-python as alfalfa-dependencies
+FROM dual-python AS alfalfa-dependencies
 
-ENV ENERGYPLUS_DIR /usr/local/EnergyPlus
-ENV HOME /alfalfa
+ENV ENERGYPLUS_DIR=/usr/local/EnergyPlus
+ENV HOME=/alfalfa
 
 WORKDIR /artifacts
 
@@ -224,23 +228,22 @@ RUN apt update \
   libgfortran5 \
   && rm -rf /var/lib/apt/lists/*
 
-# RUN update-alternatives --set java /usr/lib/jvm/java-8-openjdk-amd64/jre/bin/java \
-#   && update-alternatives --set javac /usr/lib/jvm/java-8-openjdk-amd64/bin/javac
-
-RUN --mount=type=bind,from=modelica-dependencies,source=/artifacts,target=/artifacts pip3 install *.whl \
+# Install Assimulo, PyFMI and Old Fortran Libraries
+RUN --mount=type=bind,from=modelica-dependencies,source=/artifacts,target=/artifacts pip3 install Assimulo*.whl PyFMI*.whl \
   && apt update \
   && gdebi -n gcc-6.deb \
   && gdebi -n libgfortran3.deb \
   && gdebi -n gcc-7.deb \
-  && gdebi -n libgfortran4.deb \
-  && cp -r /artifacts/sundials/* /usr
+  && gdebi -n libgfortran4.deb
 
+# Install EnergyPlus
 RUN --mount=type=bind,from=energyplus-dependencies,source=/artifacts,target=/artifacts mkdir ${ENERGYPLUS_DIR} \
   && tar -C $ENERGYPLUS_DIR/ --strip-components=1 -xzf energyplus.tar.gz \
   && ln -s $ENERGYPLUS_DIR/energyplus /usr/local/bin/ \
   && ln -s $ENERGYPLUS_DIR/ExpandObjects /usr/local/bin/ \
   && ln -s $ENERGYPLUS_DIR/runenergyplus /usr/local/bin/
 
+# Install OpenStudio
 RUN --mount=type=bind,from=energyplus-dependencies,source=/artifacts,target=/artifacts apt update \
   && gdebi -n openstudio.deb \
   && cd /usr/local/openstudio* \
