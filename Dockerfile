@@ -228,14 +228,6 @@ RUN apt update \
   libgfortran5 \
   && rm -rf /var/lib/apt/lists/*
 
-# Install Assimulo, PyFMI and Old Fortran Libraries
-RUN --mount=type=bind,from=modelica-dependencies,source=/artifacts,target=/artifacts pip3 install Assimulo*.whl PyFMI*.whl \
-  && apt update \
-  && gdebi -n gcc-6.deb \
-  && gdebi -n libgfortran3.deb \
-  && gdebi -n gcc-7.deb \
-  && gdebi -n libgfortran4.deb
-
 # Install EnergyPlus
 RUN --mount=type=bind,from=energyplus-dependencies,source=/artifacts,target=/artifacts mkdir ${ENERGYPLUS_DIR} \
   && tar -C $ENERGYPLUS_DIR/ --strip-components=1 -xzf energyplus.tar.gz \
@@ -250,6 +242,15 @@ RUN --mount=type=bind,from=energyplus-dependencies,source=/artifacts,target=/art
   && rm -rf EnergyPlus \
   && ln -s ${ENERGYPLUS_DIR} EnergyPlus \
   && rm -rf /var/lib/apt/lists/*
+
+
+# Install Assimulo, PyFMI and Old Fortran Libraries
+RUN --mount=type=bind,from=modelica-dependencies,source=/artifacts,target=/artifacts pip3 install Assimulo*.whl PyFMI*.whl \
+  && apt update \
+  && gdebi -n gcc-6.deb \
+  && gdebi -n libgfortran3.deb \
+  && gdebi -n gcc-7.deb \
+  && gdebi -n libgfortran4.deb
 
 WORKDIR $HOME
 
