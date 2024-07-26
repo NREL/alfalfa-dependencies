@@ -221,36 +221,67 @@ ENV HOME=/alfalfa
 
 WORKDIR /artifacts
 
-RUN apt update \
-  && apt install -y \
-  gdebi-core \
-  openjdk-17-jdk \
-  libgfortran5 \
-  && rm -rf /var/lib/apt/lists/*
-
 # Install EnergyPlus
-RUN --mount=type=bind,from=energyplus-dependencies,source=/artifacts,target=/artifacts mkdir ${ENERGYPLUS_DIR} \
-  && tar -C $ENERGYPLUS_DIR/ --strip-components=1 -xzf energyplus.tar.gz \
-  && ln -s $ENERGYPLUS_DIR/energyplus /usr/local/bin/ \
-  && ln -s $ENERGYPLUS_DIR/ExpandObjects /usr/local/bin/ \
-  && ln -s $ENERGYPLUS_DIR/runenergyplus /usr/local/bin/
+RUN --mount=type=bind,from=energyplus-dependencies,source=/artifacts,target=/artifacts set -eux; \
+  mkdir ${ENERGYPLUS_DIR}; \
+  tar -C $ENERGYPLUS_DIR/ --strip-components=1 -xzf energyplus.tar.gz; \
+  cd ${ENERGYPLUS_DIR}; \
+  rm -rf \
+    ExampleFiles \
+    DataSets \
+    Documentation \
+    MacroDataSets \
+    python_standard_lib \
+    WeatherData \
+    libpython3.8.so.1.0 \
+  ; \
+  ln -s $ENERGYPLUS_DIR/energyplus /usr/local/bin/; \
+  ln -s $ENERGYPLUS_DIR/ExpandObjects /usr/local/bin/; \
+  ln -s $ENERGYPLUS_DIR/runenergyplus /usr/local/bin/; \
+  ln -s /usr/local/lib/python3.8 ${ENERGYPLUS_DIR}/python_standard_lib; \
+  ln -s /usr/local/lib/libpython3.8.so.1.0 ${ENERGYPLUS_DIR}/libpython3.8.so.1.0
 
 # Install OpenStudio
-RUN --mount=type=bind,from=energyplus-dependencies,source=/artifacts,target=/artifacts apt update \
-  && gdebi -n openstudio.deb \
-  && cd /usr/local/openstudio* \
-  && rm -rf EnergyPlus \
-  && ln -s ${ENERGYPLUS_DIR} EnergyPlus \
-  && rm -rf /var/lib/apt/lists/*
+RUN --mount=type=bind,from=energyplus-dependencies,source=/artifacts,target=/artifacts set -eux; \
+  apt-get update; \
+  apt-get install -y --no-install-recommends \
+    gdebi-core \
+    openjdk-17-jre-headless \
+  ; \
+  gdebi -o "APT::Install-Recommends=1" -n openstudio.deb; \
+  cd /usr/local/openstudio*; \
+  rm -rf \
+    EnergyPlus \
+    Examples \
+    *Release_Notes*.pdf \
+  ; \
+  ln -s ${ENERGYPLUS_DIR} EnergyPlus; \
+  apt-get purge -y \
+    gdebi-core \
+  ; \
+  apt-get autoremove -y; \
+  rm -rf /var/lib/apt/lists/*
 
 
 # Install Assimulo, PyFMI and Old Fortran Libraries
-RUN --mount=type=bind,from=modelica-dependencies,source=/artifacts,target=/artifacts pip3 install Assimulo*.whl PyFMI*.whl \
-  && apt update \
-  && gdebi -n gcc-6.deb \
-  && gdebi -n libgfortran3.deb \
-  && gdebi -n gcc-7.deb \
-  && gdebi -n libgfortran4.deb
+RUN --mount=type=bind,from=modelica-dependencies,source=/artifacts,target=/artifacts set -eux; \
+  python3.10 -m pip install 'numpy>=1.19.5' 'scipy>=1.10.1' 'matplotlib>3'; \
+  python3.10 -m pip install --no-deps Assimulo*.whl PyFMI*.whl; \
+  pip3 cache purge; \
+  apt-get update; \
+  apt-get install -y --no-install-recommends \
+    gdebi-core \
+    libgfortran5 \
+  ; \
+  gdebi -n gcc-6.deb; \
+  gdebi -n libgfortran3.deb; \
+  gdebi -n gcc-7.deb; \
+  gdebi -n libgfortran4.deb; \
+  apt-get purge -y \
+    gdebi-core \
+  ; \
+  apt-get autoremove -y; \
+  rm -rf /var/lib/apt/lists/*
 
 WORKDIR $HOME
 
