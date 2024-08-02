@@ -5,8 +5,8 @@ ARG DEBIAN_VERSION=bookworm
 FROM python:${PYTHON_VERSION}-slim-bullseye AS modelica-dependencies
 ARG SUNDIALS_VERSION=v7.1.1
 ARG ASSIMULO_VERSION=3.5.2
-RUN apt update \
-  && apt install -y \
+RUN apt-get update \
+  && apt-get install -y \
   cmake \
   liblapack-dev \
   libsuitesparse-dev \
@@ -95,8 +95,8 @@ ARG OPENSTUDIO_VERSION_SHA=f953b6fcaf
 ARG ENERGYPLUS_VERSION=24.1.0
 ARG ENERGYPLUS_VERSION_SHA=9d7789a3ac
 
-RUN apt update \
-  && apt install -y \
+RUN apt-get update \
+  && apt-get install -y \
   curl \
   && rm -rf /var/lib/apt/lists/*
 
@@ -248,7 +248,7 @@ RUN --mount=type=bind,from=energyplus-dependencies,source=/artifacts,target=/art
     gdebi-core \
     openjdk-17-jre-headless \
   ; \
-  gdebi -o "APT::Install-Recommends=1" -n openstudio.deb; \
+  gdebi -o "APT::Install-Recommends=0" -n openstudio.deb; \
   cd /usr/local/openstudio*; \
   rm -rf \
     EnergyPlus \
