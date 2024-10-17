@@ -1,4 +1,4 @@
-ARG PYTHON_VERSION=3.10.14
+ARG PYTHON_VERSION=3.12.2
 ARG DEBIAN_VERSION=bookworm
 
 # Build modelica-dependencies on bullseye (this uses an older version of GLibc which allows for making manylinux wheels)
@@ -92,8 +92,8 @@ RUN gnuArch="$(dpkg-architecture --query DEB_HOST_ARCH_CPU)"\
 FROM python:${PYTHON_VERSION}-slim-${DEBIAN_VERSION} AS energyplus-dependencies
 ARG OPENSTUDIO_VERSION=3.8.0
 ARG OPENSTUDIO_VERSION_SHA=f953b6fcaf
-ARG ENERGYPLUS_VERSION=24.1.0
-ARG ENERGYPLUS_VERSION_SHA=9d7789a3ac
+ARG ENERGYPLUS_VERSION=24.2.0
+ARG ENERGYPLUS_VERSION_SHA=94a887817b
 
 RUN apt-get update \
   && apt-get install -y \
@@ -103,118 +103,11 @@ RUN apt-get update \
 WORKDIR /artifacts
 
 RUN export gnuArch=x86_64; if [ "$(uname -m)" = "aarch64" ]; then gnuArch=arm64; fi; export gnuArch \
-  && echo https://github.com/NREL/EnergyPlus/releases/download/v${ENERGYPLUS_VERSION}/EnergyPlus-${ENERGYPLUS_VERSION}-${ENERGYPLUS_VERSION_SHA}-Linux-Ubuntu22.04-${gnuArch}.tar.gz \
-  && curl -SfL https://github.com/NREL/EnergyPlus/releases/download/v${ENERGYPLUS_VERSION}/EnergyPlus-${ENERGYPLUS_VERSION}-${ENERGYPLUS_VERSION_SHA}-Linux-Ubuntu22.04-${gnuArch}.tar.gz -o energyplus.tar.gz \
+  && curl -SfL https://github.com/NREL/EnergyPlus/releases/download/v${ENERGYPLUS_VERSION}a/EnergyPlus-${ENERGYPLUS_VERSION}-${ENERGYPLUS_VERSION_SHA}-Linux-Ubuntu22.04-${gnuArch}.tar.gz -o energyplus.tar.gz \
   && curl -SfL https://github.com/NREL/OpenStudio/releases/download/v${OPENSTUDIO_VERSION}/OpenStudio-${OPENSTUDIO_VERSION}+${OPENSTUDIO_VERSION_SHA}-Ubuntu-22.04-${gnuArch}.deb -o openstudio.deb \
   && curl -SfL https://openstudio-resources.s3.amazonaws.com/bcvtb-linux.tar.gz -o bcvtb.tar.gz
 
-FROM python:${PYTHON_VERSION}-slim-${DEBIAN_VERSION} AS dual-python
-
-  ENV PYTHON_VERSION=3.8.19
-  ENV GPG_KEY=E3FF2839C048B25C084DEBE9B26995E310250568
-
-  RUN set -eux; \
-      \
-      savedAptMark="$(apt-mark showmanual)"; \
-      apt-get update; \
-      apt-get install -y --no-install-recommends \
-          dpkg-dev \
-          gcc \
-          gnupg \
-          libbluetooth-dev \
-          libbz2-dev \
-          libc6-dev \
-          libdb-dev \
-          libexpat1-dev \
-          libffi-dev \
-          libgdbm-dev \
-          liblzma-dev \
-          libncursesw5-dev \
-          libreadline-dev \
-          libsqlite3-dev \
-          libssl-dev \
-          make \
-          tk-dev \
-          uuid-dev \
-          wget \
-          xz-utils \
-          zlib1g-dev \
-      ; \
-      \
-      wget -O python.tar.xz "https://www.python.org/ftp/python/${PYTHON_VERSION%%[a-z]*}/Python-$PYTHON_VERSION.tar.xz"; \
-      wget -O python.tar.xz.asc "https://www.python.org/ftp/python/${PYTHON_VERSION%%[a-z]*}/Python-$PYTHON_VERSION.tar.xz.asc"; \
-      GNUPGHOME="$(mktemp -d)"; export GNUPGHOME; \
-      gpg --batch --keyserver hkps://keys.openpgp.org --recv-keys "$GPG_KEY"; \
-      gpg --batch --verify python.tar.xz.asc python.tar.xz; \
-      gpgconf --kill all; \
-      rm -rf "$GNUPGHOME" python.tar.xz.asc; \
-      mkdir -p /usr/src/python; \
-      tar --extract --directory /usr/src/python --strip-components=1 --file python.tar.xz; \
-      rm python.tar.xz; \
-      \
-      cd /usr/src/python; \
-      gnuArch="$(dpkg-architecture --query DEB_BUILD_GNU_TYPE)"; \
-      ./configure \
-          --build="$gnuArch" \
-          --enable-loadable-sqlite-extensions \
-          --enable-optimizations \
-          --enable-option-checking=fatal \
-          --enable-shared \
-          --with-system-expat \
-          --without-ensurepip \
-      ; \
-      nproc="$(nproc)"; \
-      EXTRA_CFLAGS="$(dpkg-buildflags --get CFLAGS)"; \
-      LDFLAGS="$(dpkg-buildflags --get LDFLAGS)"; \
-      LDFLAGS="${LDFLAGS:--Wl},--strip-all"; \
-      make -j "$nproc" \
-          "EXTRA_CFLAGS=${EXTRA_CFLAGS:-}" \
-          "LDFLAGS=${LDFLAGS:-}" \
-          "PROFILE_TASK=${PROFILE_TASK:-}" \
-      ; \
-  # https://github.com/docker-library/python/issues/784
-  # prevent accidental usage of a system installed libpython of the same version
-      rm python; \
-      make -j "$nproc" \
-          "EXTRA_CFLAGS=${EXTRA_CFLAGS:-}" \
-          "LDFLAGS=${LDFLAGS:--Wl},-rpath='\$\$ORIGIN/../lib'" \
-          "PROFILE_TASK=${PROFILE_TASK:-}" \
-          python \
-      ; \
-      make altinstall; \
-      \
-      cd /; \
-      rm -rf /usr/src/python; \
-      \
-      find /usr/local -depth \
-          \( \
-              \( -type d -a \( -name test -o -name tests -o -name idle_test \) \) \
-              -o \( -type f -a \( -name '*.pyc' -o -name '*.pyo' -o -name 'libpython*.a' \) \) \
-              -o \( -type f -a -name 'wininst-*.exe' \) \
-          \) -exec rm -rf '{}' + \
-      ; \
-      \
-      ldconfig; \
-      \
-      apt-mark auto '.*' > /dev/null; \
-      apt-mark manual $savedAptMark; \
-      find /usr/local -type f -executable -not \( -name '*tkinter*' \) -exec ldd '{}' ';' \
-          | awk '/=>/ { so = $(NF-1); if (index(so, "/usr/local/") == 1) { next }; gsub("^/(usr/)?", "", so); printf "*%s\n", so }' \
-          | sort -u \
-          | xargs -r dpkg-query --search \
-          | cut -d: -f1 \
-          | sort -u \
-          | xargs -r apt-mark manual \
-      ; \
-      apt-get purge -y --auto-remove -o APT::AutoRemove::RecommendsImportant=false; \
-      rm -rf /var/lib/apt/lists/*; \
-      \
-      python3.8 --version
-
-  RUN python3.8 -m ensurepip --altinstall
-
-
-FROM dual-python AS alfalfa-dependencies
+FROM python:${PYTHON_VERSION}-slim-${DEBIAN_VERSION} AS alfalfa-dependencies
 
 ENV ENERGYPLUS_DIR=/usr/local/EnergyPlus
 ENV HOME=/alfalfa
@@ -233,13 +126,13 @@ RUN --mount=type=bind,from=energyplus-dependencies,source=/artifacts,target=/art
     MacroDataSets \
     python_standard_lib \
     WeatherData \
-    libpython3.8.so.1.0 \
+    libpython3.12.so.1.0 \
   ; \
   ln -s $ENERGYPLUS_DIR/energyplus /usr/local/bin/; \
   ln -s $ENERGYPLUS_DIR/ExpandObjects /usr/local/bin/; \
   ln -s $ENERGYPLUS_DIR/runenergyplus /usr/local/bin/; \
-  ln -s /usr/local/lib/python3.8 ${ENERGYPLUS_DIR}/python_standard_lib; \
-  ln -s /usr/local/lib/libpython3.8.so.1.0 ${ENERGYPLUS_DIR}/libpython3.8.so.1.0
+  ln -s /usr/local/lib/python3.12 ${ENERGYPLUS_DIR}/python_standard_lib; \
+  ln -s /usr/local/lib/libpython3.12.so.1.0 ${ENERGYPLUS_DIR}/libpython3.12.so.1.0
 
 # Install OpenStudio
 RUN --mount=type=bind,from=energyplus-dependencies,source=/artifacts,target=/artifacts set -eux; \
@@ -265,8 +158,8 @@ RUN --mount=type=bind,from=energyplus-dependencies,source=/artifacts,target=/art
 
 # Install Assimulo, PyFMI and Old Fortran Libraries
 RUN --mount=type=bind,from=modelica-dependencies,source=/artifacts,target=/artifacts set -eux; \
-  python3.10 -m pip install 'numpy>=1.19.5' 'scipy>=1.10.1' 'matplotlib>3'; \
-  python3.10 -m pip install --no-deps Assimulo*.whl PyFMI*.whl; \
+  python3.12 -m pip install 'numpy>=1.19.5' 'scipy>=1.10.1' 'matplotlib>3'; \
+  python3.12 -m pip install --no-deps Assimulo*.whl PyFMI*.whl; \
   pip3 cache purge; \
   apt-get update; \
   apt-get install -y --no-install-recommends \
